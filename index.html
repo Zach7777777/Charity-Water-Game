@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Where's My Water? - Level 1</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #87CEEB, #4682B4);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+        }
+        
+        .game-container {
+            background: #2c3e50;
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        
+        #gameCanvas {
+            border: 3px solid #34495e;
+            border-radius: 10px;
+            background: #1a252f;
+            cursor: crosshair;
+        }
+        
+        .ui {
+            text-align: center;
+            margin-bottom: 15px;
+            color: white;
+        }
+        
+        .score {
+            background: rgba(0,0,0,0.3);
+            padding: 10px;
+            border-radius: 10px;
+            margin: 10px 0;
+            font-size: 16px;
+        }
+        
+        .win-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        .win-content {
+            background: linear-gradient(135deg, #2ecc71, #27ae60);
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            color: white;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            animation: bounce 0.5s ease-out;
+        }
+        
+        @keyframes bounce {
+            0% { transform: scale(0.5); opacity: 0; }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        
+        .win-content h1 {
+            font-size: 48px;
+            margin: 0 0 20px 0;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .win-content p {
+            font-size: 24px;
+            margin: 0 0 30px 0;
+        }
+        
+        .win-button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            border-radius: 10px;
+            cursor: pointer;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            transition: all 0.3s;
+        }
+        
+        .win-button:hover {
+            background: #2980b9;
+            transform: translateY(-2px);
+            box-shadow: 0 7px 20px rgba(0,0,0,0.3);
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 15px;
+        }
+        
+        button {
+            padding: 10px 20px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+        
+        button:hover {
+            background: #2980b9;
+        }
+        
+        .status {
+            margin-top: 10px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        .win {
+            color: #2ecc71;
+        }
+        
+        .lose {
+            color: #e74c3c;
+        }
+    </style>
+</head>
+<body>
+    <img src = "https://cdn.shopify.com/s/files/1/2214/1491/files/charity_water_logo-3_large.png?v=1503583092">
+    <div class="game-container">
+        <div class="ui">
+            <h2>Where's My Water? - Level 1</h2>
+            <p>Dig through the dirt to guide water to the gas can!</p>
+            <div class="score">
+                💧 Water Collected: <span id="waterCount">0</span> / 15
+            </div>
+            <div class="status" id="status">Click and drag to dig!</div>
+        </div>
+        
+        <canvas id="gameCanvas" width="600" height="400"></canvas>
+        
+        <div class="controls">
+            <button onclick="resetGame()">Reset Level</button>
+            <button onclick="startWaterFlow()">Start Water Flow</button>
+        </div>
+        
+        <!-- Win Screen -->
+        <div id="winScreen" class="win-screen hidden">
+            <div class="win-content">
+                <h1>🎉 YOU WIN! 🎉</h1>
+                <p>The gas can is full!</p>
+                <p>You collected <span id="finalScore">0</span> water drops!</p>
+                <button class="win-button" onclick="closeWinScreen()">Play Again</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const statusEl = document.getElementById('status');
+        const waterCountEl = document.getElementById('waterCount');
+        const winScreenEl = document.getElementById('winScreen');
+        const finalScoreEl = document.getElementById('finalScore');
+        
+        // Game state
+        let gameGrid = [];
+        let waterParticles = [];
+        let isDigging = false;
+        let waterStarted = false;
+        let gameWon = false;
+        let waterCollected = 0;
+        let waterInterval;
+        
+        const GRID_SIZE = 6;
+        const COLS = Math.floor(canvas.width / GRID_SIZE);
+        const ROWS = Math.floor(canvas.height / GRID_SIZE);
+        
+        // Cell types
+        const EMPTY = 0;
+        const DIRT = 1;
+        const WATER_SOURCE = 2;
+        const TARGET = 3;
+        const WATER = 4;
+        
+        // Water physics
+        class WaterParticle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 2;
+                this.vy = 0;
+                this.life = 1000;
+                this.collected = false;
+            }
+            
+            update() {
+                if (this.collected) return;
+                
+                this.vy += 0.5; // gravity
+                this.x += this.vx;
+                this.y += this.vy;
+                
+                // Bounce off walls
+                if (this.x < 0 || this.x > canvas.width) {
+                    this.vx *= -0.7;
+                    this.x = Math.max(0, Math.min(canvas.width, this.x));
+                }
+                
+                if (this.y > canvas.height) {
+                    this.life = 0;
+                    return;
+                }
+                
+                // Check collision with dirt
+                const gridX = Math.floor(this.x / GRID_SIZE);
+                const gridY = Math.floor(this.y / GRID_SIZE);
+                
+                if (gridX >= 0 && gridX < COLS && gridY >= 0 && gridY < ROWS) {
+                    // Check if the row exists and the cell exists
+                    if (gameGrid[gridY] && gameGrid[gridY][gridX] !== undefined) {
+                        if (gameGrid[gridY][gridX] === DIRT) {
+                            // Enhanced bouncing with more realistic physics
+                            this.vy *= -0.6; // More bounce
+                            this.vx *= 0.9; // Less horizontal friction
+                            this.y = gridY * GRID_SIZE - 1;
+                            
+                            // Add some random horizontal bounce for more natural movement
+                            this.vx += (Math.random() - 0.5) * 1.5;
+                        }
+                        
+                        // Check if water reaches target
+                        if (gameGrid[gridY][gridX] === TARGET) {
+                            this.collected = true;
+                            waterCollected++;
+                            updateWaterCount();
+                            checkWin();
+                        }
+                    }
+                }
+                
+                this.life--;
+                if (this.life <= 0) {
+                    this.life = 0;
+                }
+            }
+            
+            draw() {
+                if (this.collected) return;
+                
+                const alpha = Math.min(1, this.life / 1000);
+                ctx.fillStyle = `rgba(64, 164, 223, ${alpha})`;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        
+        // Initialize game
+        function initGame() {
+            gameGrid = [];
+            waterParticles = [];
+            waterStarted = false;
+            gameWon = false;
+            waterCollected = 0;
+            
+            // Create grid - Initialize all rows and columns properly
+            for (let y = 0; y < ROWS; y++) {
+                gameGrid[y] = [];
+                for (let x = 0; x < COLS; x++) {
+                    gameGrid[y][x] = EMPTY;
+                }
+            }
+            
+            // Add dirt layer - Make sure we don't go out of bounds
+            for (let y = 8; y < ROWS - 5; y++) {
+                for (let x = 5; x < COLS - 5; x++) {
+                    gameGrid[y][x] = DIRT; // Remove randomness to have solid dirt
+                }
+            }
+            
+            // Add water source - Make sure coordinates are within bounds
+            if (15 < COLS && 3 < ROWS) {
+                gameGrid[3][15] = WATER_SOURCE;
+            }
+            if (16 < COLS && 3 < ROWS) {
+                gameGrid[3][16] = WATER_SOURCE;
+            }
+            
+            // Add target (Gas can) - Make sure coordinates are within bounds, make it larger
+            const targetX = COLS - 15;
+            const targetY = ROWS - 5;
+            
+            // Create a 3x3 target area for the gas can
+            for (let dy = 0; dy < 3; dy++) {
+                for (let dx = 0; dx < 3; dx++) {
+                    const tx = targetX + dx;
+                    const ty = targetY + dy;
+                    if (tx >= 0 && tx < COLS && ty >= 0 && ty < ROWS) {
+                        gameGrid[ty][tx] = TARGET;
+                    }
+                }
+            }
+            
+            statusEl.textContent = "Click and drag to dig!";
+            statusEl.className = "status";
+            updateWaterCount();
+        }
+        
+        function updateWaterCount() {
+            if (waterCountEl) {
+                waterCountEl.textContent = waterCollected;
+            }
+        }
+        
+        // Drawing functions
+        function drawGrid() {
+            for (let y = 0; y < ROWS; y++) {
+                for (let x = 0; x < COLS; x++) {
+                    // Make sure the row and cell exist before accessing
+                    if (gameGrid[y] && gameGrid[y][x] !== undefined) {
+                        const cellType = gameGrid[y][x];
+                        
+                        switch (cellType) {
+                            case DIRT:
+                                ctx.fillStyle = '#8B4513';
+                                ctx.fillRect(x * GRID_SIZE, y * GRID_SIZE, GRID_SIZE, GRID_SIZE);
+                                
+                                // Add texture
+                                ctx.fillStyle = '#A0522D';
+                                ctx.fillRect(x * GRID_SIZE + 1, y * GRID_SIZE + 1, GRID_SIZE - 2, GRID_SIZE - 2);
+                                break;
+                                
+                            case WATER_SOURCE:
+                                ctx.fillStyle = '#4682B4';
+                                ctx.fillRect(x * GRID_SIZE, y * GRID_SIZE, GRID_SIZE, GRID_SIZE);
+                                
+                                // Add pipe effect
+                                ctx.fillStyle = '#5F9EA0';
+                                ctx.fillRect(x * GRID_SIZE + 2, y * GRID_SIZE + 2, GRID_SIZE - 4, GRID_SIZE - 4);
+                                break;
+                                
+                            case TARGET:
+                                // Draw yellow gas can
+                                ctx.fillStyle = '#FFD700';
+                                ctx.fillRect(x * GRID_SIZE, y * GRID_SIZE, GRID_SIZE, GRID_SIZE);
+                                
+                                // Add gas can details
+                                ctx.fillStyle = '#FFA500';
+                                ctx.fillRect(x * GRID_SIZE + 1, y * GRID_SIZE + 1, GRID_SIZE - 2, GRID_SIZE - 2);
+                                break;
+                        }
+                    }
+                }
+            }
+        }
+        
+        function drawWater() {
+            waterParticles.forEach(particle => {
+                if (particle && typeof particle.draw === 'function') {
+                    particle.draw();
+                }
+            });
+        }
+        
+        function drawGasCan() {
+            // Draw a larger gas can over the target area
+            const targetX = (COLS - 15) * GRID_SIZE;
+            const targetY = (ROWS - 5) * GRID_SIZE;
+            
+            if (targetX > 0 && targetY > 0) {
+                // Main body of gas can
+                ctx.fillStyle = '#FFD700';
+                ctx.fillRect(targetX, targetY, GRID_SIZE * 3, GRID_SIZE * 3);
+                
+                // Inner body
+                ctx.fillStyle = '#FFA500';
+                ctx.fillRect(targetX + 2, targetY + 2, GRID_SIZE * 3 - 4, GRID_SIZE * 3 - 4);
+                
+                // Spout
+                ctx.fillStyle = '#FF8C00';
+                ctx.fillRect(targetX + GRID_SIZE * 3 - 2, targetY + 4, 8, 6);
+                
+                // Handle
+                ctx.strokeStyle = '#FF8C00';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(targetX + GRID_SIZE * 1.5, targetY + GRID_SIZE * 0.8, 6, 0, Math.PI);
+                ctx.stroke();
+                
+                // Label
+                ctx.fillStyle = '#FF0000';
+                ctx.font = '8px Arial';
+            }
+        }
+        
+        function drawSwampy() {
+            // Draw Swampy in the top right corner
+            const swampyX = canvas.width - 60;
+            const swampyY = 30;
+            
+            // Main body (larger oval)
+            ctx.fillStyle = '#228B22';
+            ctx.beginPath();
+            ctx.ellipse(swampyX, swampyY + 15, 20, 15, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Head (larger circle)
+            ctx.fillStyle = '#32CD32';
+            ctx.beginPath();
+            ctx.arc(swampyX, swampyY, 15, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Snout
+            ctx.fillStyle = '#228B22';
+            ctx.beginPath();
+            ctx.ellipse(swampyX - 10, swampyY, 8, 5, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Eyes (larger)
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.arc(swampyX - 5, swampyY - 5, 4, 0, Math.PI * 2);
+            ctx.arc(swampyX + 5, swampyY - 5, 4, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(swampyX - 5, swampyY - 5, 2, 0, Math.PI * 2);
+            ctx.arc(swampyX + 5, swampyY - 5, 2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Tail
+            ctx.fillStyle = '#228B22';
+            ctx.beginPath();
+            ctx.ellipse(swampyX + 20, swampyY + 20, 12, 6, 0.5, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Arms/legs
+            ctx.fillStyle = '#32CD32';
+            ctx.beginPath();
+            ctx.arc(swampyX - 10, swampyY + 10, 5, 0, Math.PI * 2);
+            ctx.arc(swampyX + 10, swampyY + 10, 5, 0, Math.PI * 2);
+            ctx.arc(swampyX - 5, swampyY + 25, 5, 0, Math.PI * 2);
+            ctx.arc(swampyX + 5, swampyY + 25, 5, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Smile
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(swampyX, swampyY, 8, 0.2, Math.PI - 0.2);
+            ctx.stroke();
+        }
+        
+        // Game logic
+        function digAt(x, y) {
+            const gridX = Math.floor(x / GRID_SIZE);
+            const gridY = Math.floor(y / GRID_SIZE);
+            
+            if (gridX >= 0 && gridX < COLS && gridY >= 0 && gridY < ROWS) {
+                // Make sure the row exists before accessing it
+                if (gameGrid[gridY] && gameGrid[gridY][gridX] !== undefined) {
+                    if (gameGrid[gridY][gridX] === DIRT) {
+                        gameGrid[gridY][gridX] = EMPTY;
+                        
+                        // Dig surrounding cells for smoother digging
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                const newX = gridX + dx;
+                                const newY = gridY + dy;
+                                if (newX >= 0 && newX < COLS && newY >= 0 && newY < ROWS) {
+                                    // Check if the row and cell exist
+                                    if (gameGrid[newY] && gameGrid[newY][newX] !== undefined) {
+                                        if (gameGrid[newY][newX] === DIRT && Math.random() < 0.7) {
+                                            gameGrid[newY][newX] = EMPTY;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        function startWaterFlow() {
+            if (waterStarted) return;
+            waterStarted = true;
+            if (statusEl) {
+                statusEl.textContent = "Water is flowing! Guide it to the gas can!";
+            }
+            
+            // Create water particles from source
+            function createWater() {
+                if (gameWon || !waterStarted) return;
+                
+                for (let y = 0; y < ROWS; y++) {
+                    for (let x = 0; x < COLS; x++) {
+                        if (gameGrid[y] && gameGrid[y][x] === WATER_SOURCE) {
+                            waterParticles.push(new WaterParticle(
+                                x * GRID_SIZE + GRID_SIZE / 2,
+                                y * GRID_SIZE + GRID_SIZE
+                            ));
+                        }
+                    }
+                }
+                
+                waterInterval = setTimeout(createWater, 100);
+            }
+            
+            createWater();
+        }
+        
+        function checkWin() {
+            if (waterCollected >= 15) {
+                gameWon = true;
+                if (statusEl) {
+                    statusEl.textContent = "You Win! Gas can is full!";
+                    statusEl.className = "status win";
+                }
+                
+                // Show win screen after a short delay
+                setTimeout(() => {
+                    if (finalScoreEl) {
+                        finalScoreEl.textContent = waterCollected;
+                    }
+                    if (winScreenEl) {
+                        winScreenEl.classList.remove('hidden');
+                    }
+                }, 1000);
+            }
+        }
+        
+        function closeWinScreen() {
+            if (winScreenEl) {
+                winScreenEl.classList.add('hidden');
+            }
+            resetGame();
+        }
+        
+        function resetGame() {
+            // Stop water flow
+            if (waterInterval) {
+                clearTimeout(waterInterval);
+                waterInterval = null;
+            }
+            
+            initGame();
+            draw();
+        }
+        
+        // Update game state
+        function update() {
+            waterParticles.forEach(particle => {
+                if (particle && typeof particle.update === 'function') {
+                    particle.update();
+                }
+            });
+            
+            // Remove dead particles
+            waterParticles = waterParticles.filter(particle => particle && particle.life > 0);
+            
+            // Check if water is wasted
+            if (waterStarted && !gameWon && waterParticles.length === 0) {
+                setTimeout(() => {
+                    if (waterParticles.length === 0 && !gameWon && statusEl) {
+                        statusEl.textContent = "Try again! Dig a better path for the water.";
+                        statusEl.className = "status lose";
+                    }
+                }, 2000);
+            }
+        }
+        
+        // Render game
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            drawGrid();
+            drawWater();
+            drawGasCan();
+            drawSwampy();
+        }
+        
+        // Game loop
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Event listeners
+        canvas.addEventListener('mousedown', (e) => {
+            isDigging = true;
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            digAt(x, y);
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isDigging) return;
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            digAt(x, y);
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            isDigging = false;
+        });
+        
+        canvas.addEventListener('mouseleave', () => {
+            isDigging = false;
+        });
+        
+        // Touch events for mobile
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            isDigging = true;
+            const rect = canvas.getBoundingClientRect();
+            const touch = e.touches[0];
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+            digAt(x, y);
+        });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (!isDigging) return;
+            const rect = canvas.getBoundingClientRect();
+            const touch = e.touches[0];
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+            digAt(x, y);
+        });
+        
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            isDigging = false;
+        });
+        
+        // Start game
+        initGame();
+        gameLoop();
+    </script>
+</body>
+</html>
